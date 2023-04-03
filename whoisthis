@@ -1,0 +1,438 @@
+### Installation Summary
+
+#### For fresh install:
+- Under System, select "Installation Destination"
+- Select all drives.
+- Select "Done"
+- In the new window that opens, select "Reclaim space"
+- Select "Delete all"
+- Select "Reclaim space"
+
+###### Note: In the installation menu, is possible to use DISA stigs in the Security Policy menu.
+
+#### Date & Time.
+- Change region to Etc.
+- Set City to Greenwich Mean Time.
+- Select "Done"
+
+#### Disable Kdump.
+
+#### Installation Destination
+- Select "Installation Destination"
+- Select all drives if not selected.
+- Leave automatically configure partitioning radial button checked.  -
+- Select "Done"
+- Click reclaim space, delete all, reclaim space.
+- Reenter Installation Destination and check I will configure partitioning.
+- Select "Done"
+- Click "Click here to create them automatically" blue link.
+- DON'T TOUCH /boot or /boot/efi
+- Change /home, swap and / to 1 GiB.  Remember to click "Update Settings" after each adjustment.
+- Select "Done"
+- In "Summary of Changes" window, select "Accept Changes"
+
+#### Add mount points.
+- Re-enter "Installation Destination"
+- Select "Done"
+- In the "Manual Partitioning" window, click the "+" button to add the following mount points.
+###### Add the following mount points set to 1 GiB
+- /tmp
+- /var
+- /var/log
+- /var/log/audit
+- /var/tmp
+- /data/stenographer
+- /data/suricata
+- /data/kafka
+- /data/elasticsearch
+- /data/zeek
+- /data/fsf
+
+###### Create new Volume Group.
+- Click on /
+- Click "modify" under Volume Group.
+- Select the 500 GiB drive, and click save.
+- Click on /data/zeek, on Volume Group dropdown select Create new volume group.
+- Name it vg_data.  Select 1TB drive.
+- Click "Save"
+
+###### Expand "Desired Capacity" and modify Volume Group to reflect the following:
+- Reference provided photo. Match mount points with correct Volume Grouping and Desired Capacity.
+- Be sure to click "Update Settings" after each change.
+- When leaving / and /data/elasticsearch blank, be sure and do / first.
+- If everything is done correctly, available remaining space (displayed in pink box in bottom left corner) should be in kilobytes.
+###### Note: You may have to blank the Desired Capacity for / and /data/elastic a couple times if the "Available Space" box doesn't update to reflect KiB.
+- Click "Done" and accept changes.
+
+#### Network & Host Name
+- Select "Ethernet (enp5s0)"
+- At the bottom, change Host name to sg03.local.lan, click "Apply"
+- Click Configure.
+- Select the management interface "Ethernet (eno1)" and select "Configure" in the bottom right.
+- Select "IPv4 Settings" and select "Automatic (DHCP)" in the method drop down menu.  Select "IPv6 Settings" and select Ignore in the Method drop down.
+- Click "Save"
+- The collection interface is "Ethernet (enp5s0)" and doesn't need to be changed at this time.
+
+#### Begin Installation.
+- Click "Begin Installation"
+
+#### Create User.
+- Do NOT set a root password.
+- Select "User Creation" to create user making that user an administrator.
+- Click "Make this user administrator" radial button.
+- Cick "Done"
+###### Note: for class name the user admin and password as training
+- After installation is complete, select the blue "Reboot" button and remove OS flash drive.
+- Log into system as admin.
+
+#### Make configuration change to ensure system can pull DHCP address
+- vi /etc/sysconfig/network-scripts/ifcfg-eno1
+- Change from ONBOOT=no to yes.
+- "systemctl restart network" to pull an IP address.
+- run "ip a" to see what the IP address is.
+- On laptop, run "rm ~/.ssh/known_hosts" to remove any previous ssh keys.
+
+#### ssh into the system
+- run "ssh admin@IP" supplimenting IP for whatever the IP address is
+- run "sudo -s"
+
+#### Disabling IPv6 for entire system.
+- sudo vi /etc/sysctl.conf
+- Add the below lines.
+- net.ipv6.conf.all.disable_ipv6 = 1
+- net.ipv6.conf.default.disable_ipv6 = 1
+- net.ipv6.conf.lo.disable_ipv6 = 1
+
+###### Next run the following commands to continue disabling IPv6
+- sudo vi /etc/hosts.  Delete IPv6 entry.
+- sudo vi /etc/sysconfig/network-scripts/ifcfg-eno1.
+- Change ONBOOT from no to yes.  BOOTPROTO should say dhcp.
+- systemctl restart network restarts NUC to retrieve IP address from dhcp server.
+
+###### Houses the default CentOS configuration files.
+- cd /etc/yum.repos.d/
+- Move them all to /tmp
+- curl -L -O http://192.168.2.20/share/local.repo to pull down new configuration files.
+
+#### Make cache of all local configurations
+- run "yum makecache fast"
+
+###### Next steps:
+- cd into home directory and run the following command.
+- curl -L -O http://192.168.2.20/share/interface_prep.sh
+- If you forgot to cd into home directory, you can run "mv interface_prep.sh ~"
+- cd ~
+- chmod +x interface_prep.sh to change the file to executable.
+- ./interface_prep.sh enp5s0
+
+#### Next steps:  Configure stenographer
+- yum install stenographer
+###### Note: you cannot pin threads in steno, but you can scale it in this file by adding more threads.
+- vi /etc/stenographer/config
+
+{
+  "Threads": [
+    { "PacketsDirectory": "/data/stenographer/packets"
+    , "IndexDirectory": "/data/stenographer/index"
+    , "MaxDirectoryFiles": 30000
+    , "DiskFreePercentage": 10
+    }
+  ]
+  , "StenotypePath": "/usr/bin/stenotype"
+  , "Interface": "enp5s0"
+  , "Port": 1234
+  , "Host": "127.0.0.1"
+  , "Flags": []
+  , "CertPath": "/etc/stenographer/certs"
+}
+
+
+- Run "stenokeys.sh stenographer stenographer" to generate stenographer's trusted keys.
+- cd /data/stenographer
+- mkdir packets
+- mkdir index
+- chown -R stenographer:stenographer /data/stenographer
+- systemctl start stenographer
+- systemctl status stenographer
+- ls /data/stenographer/packets to verify packet capture.
+
+#### Suricata
+- Rule based IDS.
+- Multi-threading.
+- Default rule set: Emerging threat rule set.
+- Requires two manager threads.
+
+###### Note:
+- CORE is physical core.
+- CPU is thread of execution.
+- Two threads per core.
+
+###### Two useful commands to see CORE and thread (CPU).
+- lscpu -e
+- cat /proc/cpuinfo | egrep -e 'processor|physical id|core id' | xargs -l3
+
+###### Install Suricata
+- yum install suricata
+
+###### Disable fast.log
+- redundant log not necessary for us.  Doesn't provide sufficient detail.
+- will be change in the suricata.yaml file.
+
+###### Edit suricata.yaml file
+- vi /etc/suricata/suricata.yaml
+- :set nu is the command to show line numbers
+- change line 56 default-log-dir to /data/suricata
+- change line 60 to enabled: no
+- change line 76 to enabled: no to disable fast.log
+- change line 404 to enabled: no to disable stats.log
+- change line 557 to enabled: no to disable output to console because we are utilizing suricata as a service.
+- change line 580 to the interface we are capturing on (for class it is enp5s0).
+- uncomment line 582 and change from auto to 4 for class.
+- lines 1446 to 1466 is where thread pinning can occur.
+- default-rule-path: is where are default rules live (/var/lib/suricata/rules).  You can add your own rules there.
+
+###### Edit Suricata's sysconfig
+- vi /etc/sysconfig/suricata
+- change capture interface to OPTIONS="--af-packet=enp5s0 --user suricata"
+- this implements usage of the ring buffer to avoid packet drop.
+
+###### Run chown to change Suricata's ownership to Suricata
+- cd into /data
+- chown -R suricata:suricata suricata/
+###### Note: This command essentially tells the suricata service that it owns /data/suricata
+
+###### Point to local repo for emerging threats rules.
+- suricata-update add-source emerging-threats http://192.168.2.20/share/emerging.rules.tar
+- suricata-update
+
+###### Start Suricata
+- systemctl start suricata
+- ^start^status
+
+#### Configure zookeeper
+- yum install zookeeper
+- vi /etc/zookeeper/zoo.cfg
+- clientPort: 2181 is default, and is important to know that because zookeeper is its own that manages other services such as Kafka.  
+- Zookeeper requires other services to talk to it on 2181, but Zookeeper talks to itself on 2182.  It uses 2183 for its election process and it forms a quorum.
+- At bottom of file, add server.1=localhost:2182:2183
+- :wq! file
+
+###### Configure kafka brokers
+- yum install kafka
+- vi /etc/kafka/server.properties
+- Line 20 is where broker ids can be changed.
+- Uncomment line 31.  Change to listeners=PLAINTEXT://localhost:9092
+- Line 36 is where you edit to adjust for multiple kafka brokers.  For class change to advertised.listeners=PLAINTEXT://localhost:9092
+- Line 60 becomes log.dirs=/data/kafka
+- Line 103 is log.retention.hours, and can be changed to adjust how logs are retained before deletion.
+- Line 126 add zookeeper.connection.timeout.ms=6000
+- Line 127 is where zookeeper location is identified.  Set as zookeeper.connect=localhost:2181 for class.  2182 is for zookeeper cluster intercommunication.  2183 is for elections.
+- Line 128 becomes enable.zookeeper=true
+- Line 129 becomes delete.topic.enable=true
+- wq!
+
+###### Configure consumer properties.
+- vi /usr/share/kafka/config/consumer.properties
+- At bottom of file, add #Zookeeper.  Under add the following.
+- zookeeper.connect=localhost:2181
+- zookeeper.connection.timeout.ms=6000
+- wq!
+
+###### Configure producer properties.
+- vi /usr/share/kafka/config/producer.properties
+- Under bootstrap.servers=localhost:9092, add the following two lines.
+- #Zookeeper
+- zookeeper.connect=localhost:2181
+- data compression can be set in this file (zipping).  Remember, it's a little slower, but more data can be sent to Logstash where it's then unzipped.
+- Make sure you're in the /data directory
+- Change ownership of kafka with chown -R kafka:kafka kafka/
+
+###### Add ports to firewall.
+- sudo firewall-cmd --add-port={9092,2181,2182,2183}/tcp --permanent
+- restart the firewall by typing firewall-cmd --reload
+
+###### Next steps.  Start and check status of Zookeeper and Kafka.
+- systemctl start zookeeper
+- systemctl start kafka
+- Check status of zookeeper
+- Check status of kafka
+
+###### Create topics in kafka
+- /usr/share/kafka/bin/kafka-topics.sh --create --zookeeper localhost:2181 --replication-factor 1 --partitions 8 --topic zeek-raw
+- Done correctly, output will read "Created topic zeek-raw"
+- /usr/share/kafka/bin/kafka-topics.sh --create --zookeeper localhost:2181 --replication-factor 1 --partitions 8 --topic fsf-raw
+- Done correctly, output will read "Created topic fsf-raw"
+- /usr/share/kafka/bin/kafka-topics.sh --create --zookeeper localhost:2181 --replication-factor 1 --partitions 8 --topic suricata-raw
+Done correctly, output will read "Created topic suricata-raw"
+###### Example of deletion command: /usr/share/kafka/bin/kafka-topics.sh --delete --zookeeper localhost:2181 --replication-factor 1 --partitions 8 --topic zeek-raw
+
+###### List topics with following command
+- /usr/share/kafka/bin/kafka-topics.sh --list --zookeeper localhost:2181
+
+###### Describe topics with (This is a useful validation step).
+ - /usr/share/kafka/bin/kafka-topics.sh --describe --zookeeper localhost:2181 --topic zeek-raw
+
+###### Configure Zeek
+- Can install three packages with the following command.
+- yum install zeek zeek-plugin-kafka zeek-plugin-af_packet
+
+###### Edit first Zeek configuration file
+- vi /etc/zeek/node.cfg
+- Under [zeek], change interface to interface=af_packet::enp5s0
+- Under that, enter lb_method=custom (used for scaling Zeek into a cluster.  Not done for the class).
+- Under that, enter env_vars=fanout_id=98 (anything but 99, which is the suricata default).
+###### Note: Clustering Zeek occurs in this file.
+
+###### Edit next Zeek configuration file
+- vi /etc/zeek/zeekctl.cfg
+- This is the configuration file for zeek itself.
+- Change line 67 to LogDir = /data/zeek/logs
+- :wq!
+###### Note: The SpoolDir is the directory data is being written to.  Never ever touch it.  If there are issues, this is not the problem.  Any changes made here will always break Zeek.
+
+###### Next steps:
+- make edits to site, not base
+- cd /usr/share/zeek/site
+- curl -L -O http://192.168.2.20/share/zeek_scripts.tar.gz
+- Confirm with ll command.
+- tar -zxvf (because .gz) to unzip.  Just tar is -zvf
+- rm -rf zeek_scripts.tar.gz
+- cd into zeek_scripts
+
+###### Change kafka broker
+- vi kafka.zeek to change kafka broker to ["metadata.broker.list"] = "localhost:9092");
+- :wq!
+
+###### Edit local.zeek file
+- vi /usr/share/zeek/site/local.zeek and add at the bottom with the following several lines:
+- #Rock Scripts
+- @load zeek_scripts/json
+- @load zeek_scripts/afpacket
+- @load zeek_scripts/kafka
+- @load zeek_scripts/extension
+- @load zeek_scripts/extract-files
+- @load zeek_scripts/fsf
+- :wq!
+- Never modify base.  Only make modifications in the site directory.
+- All zeek configuration changes are made with zeekctl deploy.
+- Make a logs directory in /data/zeek
+- Do NOT chown of Zeek!
+- Now you can run zeekctl deploy and zeekctl status
+- cd /data/zeek/logs to verify logs are being created.
+- cd into current
+
+###### Looks at the history of the topic from creation as opposed to real time.
+- /usr/share/kafka/bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 --topic zeek-raw --from-beginning
+
+###### Change FSF configuration file with the following:
+- Install with yum install fsf
+- vi /opt/fsf/fsf-server/conf/config.py
+- change the log path to /data/fsf/logs
+- change yara_path to /var/lib/yara-rules/rules.yara
+- change pid_path to /run/fsf/fsf.pid
+- change export_path to /data/fsf/archive
+- for class, remove scan_log from active_logging_modules
+- change server_config to {'IP_ADDRESS' : "localhost", 'PORT' : 5800}
+- :wq!
+
+###### Next steps:
+- mkdir -p /data/fsf/{logs,archive}
+- cd /data
+- chown -R fsf:fsf fsf/
+- look at the client config with vi /opt/fsf/fsf-client/conf/config.py
+- change server_config to {'IP_ADDRESS' : ['localhost',], 'PORT' : 5800}
+- look at service file with vi /usr/lib/systemd/system/fsf.service
+- verify PIDfile is what we set in fsf.  In our case it is /run/fsf/fsf.pid
+- Add firewall rule with firewall-cmd --add-port=5800/tcp --permanent
+- Reload firewall rules with firewall-cmd --reload
+- start with systemctl start fsf
+- example command to test if server is configured correctly below
+- curl http://192.168.2.20
+- cd /data/fsf/logs/
+- If rockout.log is there, you're GTG.
+
+##### Install filebeat
+- yum install filebeat
+- cd /etc/filebeat
+- mv filebeat.yml filebeat.yml.bak
+- vi filebeat.yml - Where you can Inputs and Outputs.  Can change Input to read in Zeek logs.
+- In Filebeat prospectors, change paths: /data/fsf/logs/rockout.log
+- curl -L -O http://192.168.2.20/share/filebeat.yml (This is the filebeat yml file created by the instructors).
+- file filebeat.yml (This is a quick ASCII text verification).
+- systemctl start filebeat
+- ^start^status
+- systemctl enable filebeat
+- /usr/share/kafka/bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 --topic suricata-raw --from-beginning
+- /usr/share/kafka/bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 --topic fsf-raw --from-beginning
+
+##### Install logstash
+- yum install logstash -y
+- cd /etc/logstash
+- curl -L -O http://192.168.2.20/share/logstash.tar (Logstash pipeline configurations)
+- tar -xvf logstash.tar
+- rm -rf logstash.tar
+- cd conf.d/
+- ls will let you view your Inputs, Filters, and Outputs (you can have as many Inputs and Filters as you want).
+- vi logstash-100-input-kafka-zeek.conf (No changes were made during lecture.)
+- vi logstash-100-input-kafka-fsf.conf (No changes were made during lecture.)
+- vi logstash-100-input-kafka-suricata.conf (No changes were made during lecture.)
+- systemctl start logstash
+- ^start^status
+
+###### Install Elasticsearch
+- yum install elasticsearch -y
+- cd /data
+- chown -R elasticsearch:elasticsearch elasticsearch/
+- vi /etc/elasticsearch/elasticsearch.yml
+- :set nu
+- On line 17, rename cluster.name to sg03
+- On line 23, node.name becomes standalone-1 for class.  IRL could be Master-1, etc.
+- On line 33 change path.data to /data/elasticsearch
+- Uncomment line 43.  Should say true.
+- One line 55, uncomment network.host and change to 127.0.0.1
+###### Discovery is used for clustering Elasticsearch. Input master nodes as discovery nodes, when node connects, master node will tell node about the entire cluster.
+- :wq!
+- mkdir /usr/lib/systemd/system/elasticsearch.service.d
+- ^mkdir^chmod 755
+- vi /usr/lib/systemd/system/elasticsearch.service.d/override.conf
+- Write two lines.  On one, write [Service], under that write LimitMEMLOCK=infinity
+- chmod 644 /usr/lib/systemd/system/elasticsearch.service.d/override.conf
+- systemctl daemon-reload
+- vi /etc/elasticsearch/jvm.options
+- Set the  initial and max total heap space to 4G for lines 22 and 23.
+- :wq!
+- firewall-cmd --add-port={9200,9300}/tcp --permanent
+- firewall-cmd --reload
+- systemctl start elasticsearch
+- ^start^status
+- systemctl status logstash -l (verifies data flow)
+- cd /etc/elasticsearch/
+- curl localhost:9200/_cat/nodes
+- curl localhost:9200/_cat/indices
+
+###### Install and configure Kibana.
+- yum install kibana (no -y)
+- vi /etc/kibana/kibana.yml
+- On line 7 change server.host from "localhost" to the sensor host.  For class it is 172.16.30.101 (found with ip a).
+- Uncomment line 28 (This is the URL Kibana queries).
+- :wq!
+- must add firewall rule with firewall-cmd --add-port=5601/tcp --permanent
+- firewall-cmd --reload
+- systemctl start kibana
+- ^start^status
+- cd ~/
+- curl -L -O http://192.168.2.20/share/ecskibana.tar
+- file ecskibana.tar varifies the file is .tar
+- tar -xvf ecskibana.tar to untar.
+- cd ecskibana (shows all elasticsearch mappings).
+- ./import-index-templates.sh (show say Changed: 6)
+- On Kibana, click and hamburger icon and select Dev Tools at the bottom.  Clear everything.
+- On Kibana, click hamburger icon, select stack management, then index management.  In search bar, type ecs, select all, then delete the indices.  Repeat for fsf.  Then click the "Reload indices" button.
+- On the right, under Kibana, click on the "Index Patterns" link.
+- Enter ecs-* in the Index Pattern field/bar.
+- Click "Next step"
+- In "Time Filter field name Refresh" drop down, select @timestamp
+- Click "Create Pattern"
+- Repeat for ecs-zeek-*
+- Repeat for ecs-suricata-*
+- Repeat for fsf-*
