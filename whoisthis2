@@ -1,1251 +1,257 @@
-# Elastic Network Security Monitoring
+###### Min Specs
+- 4 cores
+- 8-16 GB RAM
 
-## Group Information
-Group 7  
-**SG-7**  
-**Upstream**: `10.0.70.0/30`  
-**Local**: `172.16.70.0/24`
+###### Base operating system
+- For this course, CentOS 7 is used.
 
----
+###### Shared resources
+- Network
+- CPU
+- Storage
+- RAM
 
-### Network Information
-Intel NUC: `172.16.70.0/24` goes to:  
-Firewall (*pfSense on basic switch*): `10.0.70.0/30` goes to:  
-Dualcomm Switch Tap: `10.0.0.0/30`
-
----
-
-## Course Notes
-Stack based on ROCK (Response Operation Colletor Kit)  
-- **Network** to:
-  - **Network card** to:
-    - **Suricata** to:
-      - **kafka** to:
-        - **logstash** to:
-        - **elasticsearch** to:
-          - **kibana**
-    - **Zeek** to:
-      - **kafka** to:
-        - **logstash** to:
-        - **elasticsearch** to:
-          - **kibana**
-      - **fsf** (file scanning framework) to:
-        - **kafka** to:
-          - **logstash** to:
-            - **elasticsearch** to:
-              - **kibana**
-    - **Google Stenographer** (pcap to disk, 90:10 ratio of uptime:downtime) to and from:
-      - **Docket**  
+###### Sensor - Multi-node
+- Give Senor the most CPUs
+- R840 Sensor
+- R440 ESXI (ELK)
 
 
+Storage = 2(Bavg x 86,400/8) Bavg = Link Speed
+- PCAP =
+- Meta = ~140:1
+- Alert = ~1000:1
 
-- **Sensor Comps**
-  - Suricata
-  - Zeek
-  - kafka
-- **Data Storage Comps**
-  - logstash
-  - elasticsearch
-  - kibana  
+###### Note: 86,400 is the number of seconds in a day.
 
-### Why ROCK?
-  - Secure
-  - Open Source
-  - Built with passive ops in mind
-  - Scalable
+Stenographer takes packets from wire and writes to disk.
+- Writes to two locations:
+- /*/packets
+- /*/index
 
-### Google Stenographer
-- Google Steno, zeek and suricata are largest **compute** users  
-- is **FIFO**
-- **90:10** write:read ratio
+By default, Steno has one thread which can take about 500 MiB per second (~500 Mb/s).
 
-### suricata
-- Is a **rule-based IDS**
-- Catches **known bad**
-- Selected over snort because of ability to **multi-thread**
-- classifies data based on traffic type
+###### Multi-threading is possible.
 
-### zeek
-- categorizes log traffic
-- separated by **log type**
-- starting to converge with suricata on compatibility
-- far more **CPU intensive** than suricata on the same job
+- lscpu -e shows number of cores/threads available.
 
-### fsf
-- File Scanning Framework
-- will likely be replaced by Strelka
-- is told where files live, analyzes the directories down to lowest file
-  - hashes files
+###### Quick ways to view traffic collection.
+- tcpdump -i <interface name>
+- watch ifstat
 
-### kafka
-- serves as a **scaling solution** for passing data directly elastic
-- is a **message queue**
-- think **regulator valve**
-  - can be configured to **surge data** based on network and computer/storage bandwidth
-- stores queue **on disk** instead of in RAM
-- the data retention policy serves as a buffer for elasticsearch downtime
-- producers (**zeek**, **suricata**, **fsf**) publish to a topic
-- consumer (**logstash**) processes from topic
-- uses partitions and replicas
-- zookeeper organizes partitions of kafka
-  - takes care of leader election, status, and streamlines topic creation
-
-### ELK Stack
-
-#### logstash
-- involves the most troubleshooting
-- enriches, categorizes, concatenates data so it can be ingested by elasticsearch
-
-#### elasticsearch
-- datastore
-- tags data for ability to search later in kibana
-- indexes of log data that can searched very quickly
-- has **REST API**
-
-#### kibana
-- front end search interface to view elasticsearch data
-- makes calls to elasticsearch **REST API**
-
-### pfSense
-- open network security
-
-#### Install
-- use UEFI-USB  
-
-1. assign interfaces
-1. no vlans
-1. em0 as WAN
-1. em1 as LAN
-1. no dhcp6, null address
-1. launch web configurator
-1. DHCP4 yes DHCP6 no
-
-### CentOS
-
-#### Install
+###### Three ring buffer options.
+- Aids in passing of data to Suricata, Zeek, and Steno.
+- Native to Rhel and CentOS.
+- Increase efficiency by approximately 15%
+1. Pf_Ring
+2. Af_Packetv2 (Rhel 7)
+- Tpacketv3 (Rhel 8+)
+3. XDP (zero copy)
 
 
-- time:
-  - region: etc
-  - city: coordinated universal time
-- minimal
-- disable kdump
-- **NETWORK**
-  - enox interface is for management (turn this **ON** during install)
-    - configure network enough to get SSH connection
-  - enpx interface is collection interface
-- **SECURITY POLICY**
-  - DISA STIG will break zeek
-  - best not to apply stigs from anaconda, but later
-- **STORAGE** (Installation Destination)
-  - ***main idea*** is:
-    1. create partitions with 1 GiB of space
-    1. assign to VGs
-    1. assign correct storage amounts
-  - try to separate data partition to one disk and OS on another disk
-  - **OS** disk
-    - mirrored
-  - **DATA** disk (partitions)
-    - raid 0 is best
-    - data/zeek
-    - data/suricata
-    - data/kafka
-    - data/***every application***
-  - select both disks on **installation destination** page
-  - automatic partitioning
-    - make additional space available
-  - delete all, reclaim space
-  - manually configure partitioning
-  - **STEPS FOR STORAGE CONFIG**
-    - link for automatic config for template
-    - set all partitions to `1GB` except `boot` and `boot/efi`
-    - **PARTITIONS**
-      | PARTITION | SPACE |
-      | :----: | :----: |
-      | /boot | default |
-      | /boot/efi | default |
-      | / | blank |
-      | swap | 16G |
-      | /tmp | 5G |
-      | /var | 50G |
-      | /var/log | 50G |
-      | /var/log/audit | 50G |
-      | /data/stenographer | 500G |
-      | /data/suricata | 25G |
-      | /data/kafka | 100G |
-      | /data/elasticsearch | blank |
-      | /data/zeek | 25G |
-      | /data/fsf | 10G |
-      | /home | 50G |
-    - **VOLUME GROUPS**
-      - **centos** (modify to be only on smaller disk)
-        | PARTITION | SPACE |
-        | :----: | :----: |
-        | swap | 16G |
-        | /tmp | 5G |
-        | /var | 50G |
-        | /var/log | 50G |
-        | /var/log/audit | 50G |
-        | /home | 50G |
-        | / | blank |
-      - **data** (only on larger disk)
-        | PARTITION | SPACE |
-        | :----: | :----: |
-        | /data/stenographer | 500G |
-        | /data/suricata | 25G |
-        | /data/kafka | 100G |
-        | /data/zeek | 25G |
-        | /data/fsf | 10G |
-        | /data/elasticsearch | blank |
+###### Logstash
+- Data normalization - making all of your data conform to a specific data schema.  In Elastic, that's ECS (Elastic Common Schema).
+- Data enrichment - adding data to the original logs to give more context.
+- Logstash has three main components: Input, Filter, Output.
+- For class, our Input is Kafka.  Filter is Data normalization and enrichment.  Output is Elasticsearch.
 
-- click **Done**,**accept changes**, **begin installation**, **user creation**
-  - don't create a root account, do create a user account, make that account administrator
+###### Kafka
+- Guarantees delivery of data.
+- Load balances.
+- Buffers
 
-#### Configuration
-- use `nmtui` to set up network
-  1. edit a connection
-  1. select eno1
-  1. edit
-  1. leave ipv4 automatic
-  1. set ipv6 to **ignore**
-  1. make sure automatically connect is checked
-  1. select **ok**
-  1. exit **nmtui** by navigating back to main menu and quitting
-- once network is set up:
-  - disable ipv6 in /etc/sysctl.conf
-    - `vi /etc/sysctl.conf`
-    - add `net.ipv6.conf.all.disable_ipv6=1`
-    - add `net.ipv6.conf.default.disable_ipv6=1`
-    - add `net.ipv6.conf.lo.diable_ipv6 = 1`
-    - restart the network
-- add repo and install packages from local repo
-  - scp the file from `student@192.168.2.20:/repos/configs/local.repo`
-    - `scp student@192.168.2.20:/repos/configs/local.repo ~`
-  - move to home/admin
-    - `mv local.repo /home/admin`
-  - replace all files in `/etc/yum.repos.d` with `local.repo` files
-    - `cd /etc/yum.repos.d`
-    - `rm -rf CentOS-*`
-    - `mv /home/admin/local.repo .`
-  - perform `yum clean all`
-  - perform `yum makecache fast`
+----
+## Producers (produce data and sends to Kafka cluster)
+- Zeek
+- Filebeat (sends data to Kafka)
 
-##### systemd
+## Brokers
+#### - Kafka cluster itself
+###### Topic (topic is a data source)
+- Zeek
+- Suricata
+- FSF
 
-- already known information
+## Consumers (subscribe to topics it requires)
+- Logstash
+- Input (workers)
+- Filter
+- Output
 
-##### selinux
+## Consumer Offset
+----
 
-- `ll -Z` is `ll` with selinux context
-- `chcon` is the `chmod`/`chown` of selinux context
-- `restorecon` sets the selinux context to the logical values based on database value, location, etc
-- `sestatus` remember this command
-- selinux events are located in **/var/log/audit**
-- local database of contexts is located at
-- `touch /.autorelable` will reconfigure context at system restart if too many erroneous context changes have been made
+###### Zookeeper
+- Understands state of Kafha brookers (tracks cluster state).  
+- Must be started before Kafka.  If it doesn't establish a quorum, Kafka will not come up.
+- One Zookeeper (only one is necessary) instance can track multiple Kafka instances.
+- yum install kafka librdkafka zookeeper (installs three items).
+- librdkafka is the library that kafka uses.
 
-### Capture
+###### Zeek
+- Network protocol analyzer/parser.
+- It is also a scripting language.
+- Operates in a clustered state.
+- Pin to CORES
+- Will have a manager, logger, and workers.
+- Each worker can handle ~250Mb/s. But mostly likely only ~200Mb/s will be obtained.  Single threaded, so these numbers are per CORE.
+- Every single connection made goes into conn.log file
+- If it sees a particular connection type, it will make a log.  For example: dns traffic goes into dns.log, etc.
+- Specific traffic can go into multiple logs.  TLS traffic will go in conn.log, http.log, and ssl.log
+- Zeek outputs to Kafka (stream)
 
-- pull script `/repos/configs/interface_prep.sh` from 192.168.2.20 to **/home/admin**
-  - user **student**
-  - this prepares the interface for proper capture
-  - file contents:
+###### Filebeat
+- Inputs and outputs
+- Inputs eve.json, rockout.log, and Outputs to Kafka.
+- For filebeat backup, make a copy titled filebeat.yml.bak (filebeat won't recognize .bak files).
 
-  ```sh
-  #!/bin/bash
-    for i in rx tx sg tso ufo gso gro lro   rxvlan txvlan
-      do
-        /usr/sbin/ethtool -K $1 $i off
-      done
+###### Suricata
+- Writes to eve.json (file)
 
-      /usr/sbin/ethtool -N $1 rx-flow-hash udp4   sdfn
-      /usr/sbin/ethtool -N $1 rx-flow-hash udp6   sdfn
-      /usr/sbin/ethtool -n $1 rx-flow-hash udp6
-      /usr/sbin/ethtool -n $1 rx-flow-hash udp4
-      /usr/sbin/ethtool -C $1 rx-usecs 10
-      /usr/sbin/ethtool -C $1 adaptive-rx off
-      /usr/sbin/ethtool -G $1 rx 4096
+###### FSF
+- Has two components: Client and Server
+- Zeek tells Client to send files to Server
+- Server has yara rules where is tests and scans the files.
+- Yara rules outputs a json file.  scan_log is the defaut log; for class it writes to rockout.log (file)
+- Contents of the json file get picked up by filebeat and shipped to kafka.
+- Even if no yara rules are not defined, it will automatically record file hashes.
 
-      /usr/sbin/ip link set dev $1 promisc on
-```
+###### Note: Running cat on an executable can crash your terminal.
 
-- command `ethtool -k <DEVICE ID>` to see configuration of NIC
-- execute the interface_prep.sh script
-  - `chmod +x /home/admin/interface_prep.sh`
-  - `/home/admin/interface_prep.sh enp5s0`
-    - make sure checksumming and segmentation go **off**
-- make changes persistent by pulling script `/repos/configs/ifup-local .` from same location
-  - place that file at **/sbin/ifup-local**
-  - file contents:
+###### Elasticsearch
+- Elasticsearch scales horizontally instead of vertically.
+- Node is an instance of Elasticsearch.
+- Cluster is a group of nodes.
+- In clusters, you have master nodes.  Masters are like work place managers.  The rule is you don't want any more or any less than 3.
+- Data nodes are the workers.  The only minimum requirement for data nodes depends on the amount of data being ingested.  For our kits, the instructor said there should be 5.  Data nodes do the indexing as well as the reading when a search is being performed.
+- There is also a coordinating node.  They speed up search time.  It is the interface between Kibana and the nodes.  Installed by default.  It doesn't have to be used, but there is no reason not to.
+- port 9200 is the ES API interface, 9300 is for inter node communication.
+- FYSA: Every node is a coordinating node.
 
-  ```sh
-  #!/bin/bash
-  if [[ "$1" == "enp5s0" ]]
-  then
-    for i in rx tx sg tso ufo gso gro lro   rxvlan txvlan
-      do
-        /usr/sbin/ethtool -K $1 $i off
-      done
+###### Kibana
+- Give 4 COREs and 8G of RAM.
+- Front end for querying Elasticsearch.
+- 5601 is the default port for Kibana.
+- Look into file-based authentication if you don't have LDAP set up.
+###### Note: ss -lnt is a command to see active ports on our box.
 
-      /usr/sbin/ethtool -N $1 rx-flow-hash udp4   sdfn
-      /usr/sbin/ethtool -N $1 rx-flow-hash udp6   sdfn
-      /usr/sbin/ethtool -n $1 rx-flow-hash udp6
-      /usr/sbin/ethtool -n $1 rx-flow-hash udp4
-      /usr/sbin/ethtool -C $1 rx-usecs 10
-      /usr/sbin/ethtool -C $1 adaptive-rx off
-      /usr/sbin/ethtool -G $1 rx 4096
+###### Troubleshooting useful commands
+- df -h checks disk space
+- du -h will provide size of directories within directories
+- Check permissions with ll
+- /user/share/kafka/bin/kafka-console-consumer.sh verifies data is being loaded into kafka topics.  Run after zeek, kafka, suricata, filebeat, fsf
+- run after fsf curl, http://192.168.2.20
+- Check stenographer/packets to see if data is being written to the directory
+- For logstash issues, cat /var/log/logstash/logstash-plain.log
+- For Elasticsearch troubleshooting, curl localhost:9200/(underscore)cat/nodes and curl localhost:9200/(underscore)cat/indices
+- ss -lnt to look at listening ports
+- journalctl -xe provides more information on services
+- journalctl -xeu elasticsearch.service for information on  specific service (Elasticsearch for this example).
+- firewall-cmd --list-all shows all open ports on the firewall.
+- ls /var/log is also useful.
+- For troubleshoot, work right to left of the diagram.  So, start with Kibana, then ES, then Kafka, etc.
 
-      /usr/sbin/ip link set dev $1 promisc on
+## Review
+###### Stenographer
+- sytemctl status stenograher
+- /data/stenographer/packets
+- /data/stenographer/index
+- chown -R stenographer:stenographer stenographer/
+- /etc/stenographer/config
+- stenokeys.sh stenographer stenographer writes certs and CA to /etc/stenographer/certs
+- port 1234
 
-    fi
-```
+###### Zeek
+- zeekctl status
+- zeekctl start
+- /etc/zeek for node.cfg, networks.cfg, and zeekctl.cfg (defines how Zeek will behave).
+- /usr/share/zeek/site/local.zeek for scripts
+- /data/zeek/logs where Zeek writes logs (current).
+- /data/zeek/extract_files for file extraction
+- /var/spool/zeek linked to current
+- zcat for looking at zipped files.
 
-- execute the **/sbin/ifup-local** script
-- modify ifup and network scripts
-  - /etc/sysconfig/network-scripts/ifup:
+###### FSF
+- systemctl start fsf
+- systemctl status fsf
+- /data/fsf
+- Two components (client, server)
+- port 5800
+- vi /opt/fsf/fsf-server/conf/config.py
+- vi /opt/fsf/fsf-client/conf/config.py
 
-      ```sh
-if [ -x /sbin/ifup-local ]; then
-    /sbin/ifup-local ${DEVICE}
-fi
-```
-    - add to end of file
-- set enp5s0 **onboot** to `yes`, **ipv6 values** to `no`, **bootproto** to `none`, **defroute** to `none`
-  - **/etc/sysconfig/network-scripts/ifcfg-enp5s0**
+###### Suricata
+- /etc/suricata/suricata.yml
+- /etc/suricata/rules
+- /var/lib/suricata/suricata.rules where are actual rules are loaded
+- /data/suricata/eve.json
+- chown -R suricata:suricata suricata/ when in /data
+- /etc/sysconfig/suricata
+- enabled: no (for system collection)
+- disable stats and fastlog
+- af_packet = 99
 
-  ```sh
-  TYPE=Ethernet
-  PROXY_METHOD=none
-  BROWSER_ONLY=no
-  BOOTPROTO=no
-  DEFROUTE=no
-  IPV4_FAILURE_FATAL=no
-  IPV6INIT=no
-  IPV6_AUTOCONF=no
-  IPV6_DEFROUTE=no
-  IPV6_FAILURE_FATAL=no
-  IPV6_ADDR_GEN_MODE=stable-privacy
-  NAME=enp5s0
-  UUID=acad4102-1566-4cef-93ae-ea91181fd36c
-  DEVICE=enp5s0
-  ONBOOT=yes
-  ```
-- reboot
-- install **tcpdump**
-  - `yum install -y tcpdump`
-  - run with `tcpdump -i <INTERFACE ID>`
+###### Kafka
+- ports 9092
+- /data/kafka
+- zookeeper manager - ports 2181, 2182, 2183
+- /producers.properties
+- /consumer.properties
+- /etc/kafka/server.properties
 
-### service installation
+###### Logstash
+- default port 5044:beats
+- /etc/logstash
+- /etc/logstash/conf.d
+- logstash.yml
+- jvm.options (max is 8 for heap/ram)
+- Running Pipelines are Input, Filter, and Output
+- used for data normalization and enrichment
+- adds geotagging and conforms data to ecs.
+- Input is Kakfa, Output is ES.
 
-#### stenographer
-- `yum install -y stenographer`
-- edit config file at **/etc/stenographer/config**
+###### Elasticsearch
+- ports 9200 - API, 9300 - internal
+- /etc/elasticsearch/elasticsearch.yml
+- /etc/elasticsearch/jvm.options (max out: 31, or 50% of total RAM)
+- 3 Masters
+- 5 Data (workers)
+- 1 CN (coordination)
+- nodes types are data, ingest, machine learning, remotes, transform, master
+- indices hold documents
+- data (from biggest to smallest) index, document, shard
+- shards consist of lucene indexes
+- manage shards and replicas with index lifecycle management (ILM)
+- /usr/lib/systemd/system/elasticsearch.service.d/override.conf to set MEMLOCK (this is done because we disable swap space).
 
-```sh
-{
-  "Threads": [
-    { "PacketsDirectory": "/data/stenographer/packets"
-    , "IndexDirectory": "/data/stenographer/index"
-    , "MaxDirectoryFiles": 30000
-    , "DiskFreePercentage": 10
-    }
-  ]
-  , "StenotypePath": "/usr/bin/stenotype"
-  , "Interface": "enp5s0"
-  , "Port": 1234
-  , "Host": "127.0.0.1"
-  , "Flags": []
-  , "CertPath": "/etc/stenographer/certs"
-}
-```
-- Run `stenokeys.sh stenographer stenographer` to generate certs
-- `mkdir /data/stenographer/{index,packets}`
-- change ownership, recursive, of **/data/stenographer** to **stenographer:stenographer**
-  - `chown -R stenographer:stenographer /data/stenographer`
-- start the service to ensure it was configured properly
-  - `systemctl start stenographer`
-  - `systemctl status stenographer`
-- test with `ping 8.8.8.8`
-  - this is an easily identifiable string to search
-- `cd /home/admin` to go home
-- `stenoread 'host 8.8.8.8'` to search for your pings
-- open port on firewall
-  - `firewall-cmd --add-port=1234/tcp --permanent`
-  - `firewall-cmd --reload`
-
-#### suricata
-
-##### install
-- install suricata
-  - `yum install suricata`
-
-##### configuration
-- main configuration file:
-  - **/etc/suricata/suricata.yaml**
-- edit the file:
-  - `vim /etc/suricata/suricata.yaml`
-    - line 56: `default-log-dir: /data/suricata/`
-    - line 60: `enabled: no`
-    - line 76: `enabled: no`
-    - line 404: `enabled: no`
-    - line 557: `enabled: no`
-    - line 580: `- interface: enp5s0`
-    - line 582: `threads: 4` (remove the `#`)
-- modify systemd file to force af-packet usage
-  - `vim /etc/sysconfig/suricata`
-    - last line: `OPTIONS="--af-packet=enp5s0 --user suricata "`
-- pull current community rules:
-  - `suricata-update add-source local-emerging-threats http://192.168.2.20/share/emerging.rules.tar`
-- update in suricata
-  - `suricata-update`
-- change ownership of **/data/suricata**
-  - `chown -R suricata:suricata /data/suricata`
-
-##### starting
+###### Kibana
+- port 5601
+- /etc/kibana/kibana.yml for main configurations.  We modify server host -> routable IP.  Also modify elasticsearch.host (local machine in our case).
 - start the service
-  - `systemctl start suricata`
-- check the status
-  - `systemctl status suricata`
-- enable the service
-  - `systemctl enable suricata`
-
-##### checking
-- check for **eve.json** in **/data/suricata** and take note of the size
-- ping something
-  - `ping 8.8.8.8`
-- make sure the file size grew
-- restart suricata
-  - `systemctl restart suricata`
-- you should have the following files:
-  - eve.json
-  - flowbits.json
-  - keyword_perf.log
-  - packet_stats.log
-  - prefilter_perf.log
-  - rule_group_perf.log
-  - rule_perf.log
-  - suricata.log
-
-##### notes
-- suricata can be clustered.  If you are clustering, the ID on line 584 of every instance's **/etc/suricata/suricata.yaml** needs to be the same
-- suricata rules are stored in **/pwd/suricata/rules**
-
-#### zeek
-
-##### install
-- `yum install -y zeek zeek-plugin-kafka zeek-plugin-af_packet`
-
-##### config
-- edit networks.cfg (no changes needed)
-  - `vim /etc/zeek/networks.cfg`
-- edit zeekctl.cfg
-  - `vim /etc/zeek/zeekctl.cfg`
-    - policy script located on or near line 63
-      - `SitePolicyScripts = local.zeek`
-        - modify this to include other needed policy scripts
-    - line 67, log directory
-      - `LogDir = /data/zeek/logs`
-    - line 71, spool directory
-      - `SpoolDir = /var/spool/zeek`
-        - no need to change, but in future builds, you could make this its own partition
-    - end of file, add
-      - `lb_custom.InterfacePrefix=af_packet::`
-- edit node.cfg
-  - `vim /etc/zeek/node.cfg`
-    - commment out lines 8-11 so they look like
-
-    ```
-    #[zeek]
-    #type=standalone
-    #host=localhost
-    #interface=eth0
-    ```
-    - uncomment lines 20-22 and pin cpu 3 to [manager]
-
-    ```
-    [manager]
-    type=manager
-    host=localhost
-    pin_cpus=3
-    ```
-
-    - uncomment lines 24-26
-
-    ```
-    [proxy-1]
-type=proxy
-host=localhost
-```
-    - uncomment 28-31 and correct the interface to enp5s0
-
-    ```
-    [worker-1]
-type=worker
-host=localhost
-interface=enp5s0
-```
-    - add the following lines below 31, under [worker-1]
-    ```
-    lb_method=custom
-    lb_procs=2
-    pin_cpus=1,2
-    env_vars=fanout_id=93
-    ```
- go to **/usr/share/zeek/site**
-- `cd /usr/share/zeek/site`
- create the directory **scripts**
-- `mkdir /usr/share/zeek/site/scripts`
- go into **scripts**
-- `cd scripts`
- download scripts from website
-- curl -L -O http://192.168.2.20/share/afpacket.zeek.tar.gz
-  - if you get an error, make sure you are sudo'd
- download the extension file
-- curl -L -O http://192.168.2.20/share/extension.zeek
-  - no real need to edit the file, but the $system variable can be modified to make error identification easier
-- download extract-files.zeek
-  - curl -L -O http://192.168.2.20/share/extract-files.zeek
-- go up one directory level
-  - `cd ..`
-- edit local.zeek
-  - `vim local.zeek`
-  - add the following to the bottom of the file:
-
-    ```
-    #additional scripts
-    @load scripts/afpacket.zeek
-    @load scripts/extension.zeek
-    @load sctipts/extract-files.zeek
-    @load sctipts/kafka.zeek
-    @load sctipts/fsf.zeek
-    @load sctipts/eve.json.zeek
-    @load sctipts/communityid.zeek
-    @load sctipts/ja3.zeek for clients ja3yes for servers
-
-    ```
-- `zeekctl` is the management command for zeek
-  - `zeekctl --help` shows information on how to use the command
-  - start zeek with no config
-    - `zeekctl deploy`
-  - check status with `zeekctl status`
-  - zeek logs are in **/data/zeek**
-    - `cd /data/zeek/current`
-    - `ll`
-
-#### kafka
-
-##### installation
-- install kafka and add-ons using yum
-  - `yum install -y kafka librdkafka zookeeper`
-
-##### config
-- zookeeper is in **/etc/zookeeper**, go there
-  - `cd /etc/zookeeper`
-- edit zoo.cfg
-  - `vim zoo.cfg`
-   - add ports for leaders and followers around line 14
-    - `server.1=localhost:2182:2183`
-      - 2183 is used for master election
-      - additional servers would be:
-        - `server.X=<IP ADDRESS>:2182:2183`
-- kafka config files are in **/etc/kafka**, go there
-  - `cd /etc/kafka`
-- edit server.properties
-  - `vim server.properties`
-    - line 21: change broker_id
-      - `broker.id=0`
-    - line 31: uncomment, change to localhost
-      - `listeners=PLAINTEXT://localhost:9092`
-    - line 36: same thing
-      - `advertised.listeners=PLAINTEXT://sg7,lab,lan:9092`
-    - line 60: change log directory to **/data/kafka/logs**
-      - `log.dirs=/data/kafka/logs`
-    - line 103: modify log retention hours to 12
-      - `log.retention.hours=8`
-        - in production, this is best set at 3-4 days
-    - below line 123: allow zooker to start and remove topics
-      - `enable.zookeeper=true`
-      - `delete.topic.enable=true`
-- additional config files are located in **/usr/share/kafka/config**, go there
-  - `cd /usr/share/kafka/config`
-- edit **producer.properties**
-  - `vim producer.properties`
-    - line 22: add zookeeper connection
-      - `zookeeper.connect=localhost:2181`
-- edit **consumer.properties**
-  - `vim consumer.properties`
-      - line 20: add zookeeper connection
-        - `zookeeper.connect=localhost:2181`
-      - line 22: modify group ID
-        - `group.id=<group ID>`
-- create directories for logs
-  - go to **/data**
-    - `cd /data`
-  - change ownership of kafka directory recursively
-    - `chown -R kafka:kafka kafka/`
-- modify firewall ports and reload firewall rules
-  - `firewall-cmd --add-port={9092,2181,2182,2183}/tcp --permanent`
-  - `firewall-cmd --reload`
-
-##### start
-- start zookeeper and kafka
-  - `systemctl start zookeeper`
-   - check status with `systemctl status zookeeper`
-  - `systemctl start kafka`
-    - check status with `systemctl status kafka`
-
-###### CPU pinning
-- if processes are pinned to both physical and virtual cores, zeek will cease to work
-- use `lscpu -e` to view the cpu cores.  On the NUC, it appears as
-
-  ```
-  CPU NODE SOCKET CORE L1d:L1i:L2:L3 ONLINE MAXMHZ    MINMHZ
-  0   0    0      0    0:0:0:0       yes    4200.0000 800.0000
-  1   0    0      1    1:1:1:0       yes    4200.0000 800.0000
-  2   0    0      2    2:2:2:0       yes    4200.0000 800.0000
-  3   0    0      3    3:3:3:0       yes    4200.0000 800.0000
-  4   0    0      0    0:0:0:0       yes    4200.0000 800.0000
-  5   0    0      1    1:1:1:0       yes    4200.0000 800.0000
-  6   0    0      2    2:2:2:0       yes    4200.0000 800.0000
-  7   0    0      3    3:3:3:0       yes    4200.0000 800.0000
-  ```
-
-- technically, we have cores 0-3 or 4-7 available. in best practice, do not ever pin 0.  So we have either 1-3 or 5-7 available. Go back to zeek>config to use this infromation in **node.cfg**
-- focus on the repetition of cores, socket, etc
-  - you can only use each core on each node and socket once
-- generally one core for every 180-250 Mbps of traffic
-
-###### af-packets
-- at kernel level, duplicates the traffic that was intended for the cpu
-- af-packet grabs the packet and makes three distinct copies for tools to use
-
-
-#### fsf
-
-##### installation
-- install fsf
-  - `yum install -y fsf`
-
-##### config
-- configuration file is located at **/opt/fsf**, go there
-  - `cd /opt/fsf`
-- navigate into the server and conf directory, modify config.py
-  - `cd fsf-server/conf`
-  - `vim config.py`
-
-    ```{r, attr.source='.numberLines'}
-    SCANNER_CONFIG = { 'LOG_PATH' : '/data/fsf',
-                   'YARA_PATH' : '/var/lib/yara-rules/rules.yara',
-                   'PID_PATH' : '/tmp/scanner.pid',
-                   'EXPORT_PATH' : '/data/fsf/archive',
-                   'TIMEOUT' : 60,
-                   'MAX_DEPTH' : 10,
-                   'ACTIVE_LOGGING_MODULES' : ['rockout'],
-                   }
-
-    SERVER_CONFIG = { 'IP_ADDRESS' : "localhost",
-                  'PORT' : 5800 }
-```
-- create directories for fsf to write
-  - `mkdir -p /data/fsf/archive`
-- change ownership of **/data/fsf** to fsf recursively
-  - `chown -R fsf:fsf /data/fsf`
-- navigate into the client and conf directory, modify config.py
-  - `vim /opt/fsf/fsf-client/conf/config.py`
-
-    ```
-    SERVER_CONFIG = { 'IP_ADDRESS' : ['127.0.0.1',],
-                      'PORT' : 5800 }
-
-    # Full path to debug file if run with --suppress-report
-    CLIENT_CONFIG = { 'LOG_FILE' : '{{ fsf_client_logfile }}' } **not needed**
-```
-- open ports on firewall and reload
-  - `firewall-cmd --add-port=5800/tcp --permanent`
-  - `firewall-cmd --reload`
-
-##### start
-- start the fsf service
-  - `systemctl start fsf`
-- check the service status
-  - `systemctl status fsf`
-- check output of fsf
-  - `/opt/fsf/fsf-client/fsf_client.py --full <ANY FILE>`
-
-#### fsf to zeek config
-- navigate to **/usr/share/zeek/site/scripts**
-- download fsf to zeek config file
-  - `curl -L -O http://192.168.2.20/share/fsf.zeek`
-- edit the **local.zeek** file to include the new script
-  - add this to the bottom of the file:
-    - `@load scripts/fsf.zeek`
-- restart zeek
-  - `zeekctl deploy`
-- navigate to **/usr/share/zeek/site/scripts**
-  - `cd /usr/share/zeek/site/scripts`
-- download json.zeek
-  - `curl -L -O http://192.168.2.20/share/json.zeek`
-- go up a directory
-  - `cd ..`
-- edit **local.zeek**
-  - add at end of file:
-    - `@load scripts/json.zeek`
-    - `@load scripts/kafka.zeek`
-- navigate back to **/usr/share/zeek/site/scripts**
-  - `cd /usr/share/zeek/site/scripts`
-- download the **kafka.zeek** file
-  - `curl -L -O http://192.168.2.20/share/kafka.zeek`
-- modify the **kafka.zeek** file
-  - `vim kafka.zeek`
-    - line 7: change to:
-      - `["metadata.broker.list"] = "localhost:9092");`
-- deploy zeek again
-  - `zeekctl deploy`
-
-
-##### checking
-- navigate to home
-  - `cd`
-- download the fsf.zeek file again
-  - `curl -L -O http://192.168.2.20/share/fsf.zeek`
-- navigate to **/data/zeek/data**
-  - `cd /data/zeek/extract_files`
-    - notice the files
-- navigate up two levels
-  - `cd ../..`
-- navigate into the **fsf** directory
-  - `cd fsf`
-- tail the **rockout.log** and look for the time that the fsf.zeek script was downloaded.  You will see an entry regarding that event
-- stop fsf
-  - `systemctl stop fsf`
-- stop zeek
-  - `zeekctl stop`
-- delete the zeek-raw partition
-  - `/usr/share/kafka/bin/kafka-topics.sh --delete --zookeeper localhost:2181 --topic zeek-raw`
-- create the zeek-raw partition with custom parameters
-  - `/usr/share/kafka/bin/kafka-topics.sh --create --zookeeper localhost:2181 --replication-factor 1 --partitions 8 --topic zeek-raw`
-- create the suricata-raw partition with custom parameters
-  - `/usr/share/kafka/bin/kafka-topics.sh --create --zookeeper localhost:2181 --replication-factor 1 --partitions 8 --topic suricata-raw`
-- create the fsf-raw partition with custom parameters
-  - `/usr/share/kafka/bin/kafka-topics.sh --create --zookeeper localhost:2181 --replication-factor 1 --partitions 8 --topic fsf-raw`
-- start fsf
-  - `systemctl start fsf`
-- start zeek
-  - `zeekctl start`
-- console consumer command, really helpful for troubleshooting
-  - `/usr/share/kafka/bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 --topic zeek-raw`
-    - this will output the kafka pipeline directly to your console.  Do not try to read the data.  The fact that you see any traffic tells you it's working
-
-#### filebeat
-- filebeat serves as an intermediary between fsf and kafka.  Also sits between other services and kafka, but is made to get data from one service into kafka if the former service doesn't have a kafka plugin.
-
-##### install
-- install filebeat
-  - `yum install -y filebeat`
-- config files are stored in **/etc/filebeat**, go there
-  - `cd /etc/filebeat`
-- **filebeat.reference.yml** file is where you can see actives modules in filebeat, etc, no changes are needed for the class, but a lot of information is in here, most importantly, the syntax
-- **filebeat.yml** is where changes are actually made.  Pay attention to the headings and comments
-  - you can enable default Kibana dashboards in the **Dashboards** section
-- move the default **filebeat.yml** to back it up
-  - `mv filebeat.yaml filebeat.yaml.bk`
-- download the new **filebeat.yml** file from teacher share
-  - `curl -L -O http://192.168.2.20/share/filebeat.yml`
-- view the new **filebeat.yml**
-  - `vim filebeat.yml`
-    - no changes needed, but good to see what's happening in the file
-
-##### start
-- start filebeat and check status
-  - `systemctl start filebeat`
-  - `systemctl status filebeat`
-- enable filebeat for future startups
-  - `systemctl enable filebeat`
-
-
-##### testing
-- make sure suricata files are being processed
-  - `/usr/share/kafka/bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 --topic suricata-raw --from-beginning`
-- do the same thing for fsf files
-  - `/usr/share/kafka/bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 --topic fsf-raw --from-beginning`
-
-#### logstash
-
-##### install
-- install logstash
-  - `yum install -y logstash`
-  port 9600
-
-
-##### config
-- **/etc/logstash/conf.d** is where config files will be stored, but it will be empty at first installation, go there, but one level up
-  - `cd /etc/logstash`
-- pull in pipeline files
-  - `curl -L -O http://192.168.2.20/share/logstash.tar`
-- untar the file
-  - `tar -xvf logstash.tar`
-- remove the **logstash.tar** file
-  `rm -f logstash.tar`
-- **logstash.yml** is the main config file, view that file
-  - `vim logstash.yml`
-    - no changes are needed, but good to know where changes are made
-    - x-pack monitoring is where you set up monitoring, which enables you to see logstash pipelines in Kibana
-- view pipelines, go into **conf.d**
-  - `cd conf.d`
-    - input is kafka
-    - filter modifies/transmutes data
-    - output is output
-    - numbers are there because files need to be loaded in a certain order to be seen
-      - inputs are first
-      - filters are second
-      - output last
-
-      types of pipelines
-  - **Inputs**
-    - open the **input-kafka-zeek.conf**
-      - `vim logstash-100-input-kafka-zeek.conf`
-        - `bootstrap_servers => "<IP:PORT>"` is the source
-          - `add_field => { "[metadata][stage]" => "<field>" }` is what you want to filter on in logstash
-            - multiple looks like `bootstrap_serevers => "<IP:PORT>","<IP:PORT>"`
-          - `group_id => "<groupID>"` should be the same between nodes and services
-  - **Filters**
-    - open the **500** file
-      - `vim logstash-500-filter-zeek-common.conf`
-  - **Output**
-    - edit the **9999-output** file
-      - `vim logstash-9999-output-elasticsearch.conf`
-
-##### start
-- start logstash to make sure it's working, but it will timeout because it can't talk to elasticsearch yet
-  - `systemctl start logstash`
-  - `watch systemctl status logstash`
-    - using `watch` to see if the timer restarts.  If logstash is not working, the timer will bounce
-
-#### elasticsearch
-
-##### install
-- install elasticsearch
-  - `yum install -y elasticsearch`
-
-##### config
-
-- navigate to **/data**
-  - `cd /data`
-- change the ownership of **elasticsearch** to *elasticsearch:elasticsearch*
-  - `chown -R elasticsearch: elasticsearch/`
-- edit the **elasticsearch.yml** file
-  - `vim /etc/elasticsearch/elasticsearch.yml`
-    - line 17: set cluster name
-      - `cluster.name: SG-1`
-    - line 23: set node name
-      - `node.name: <nodeName>`
-    - line 33: edit the data path
-      - `path.data: /data/elasticsearch`
-    - line 43: uncomment boostrap memory lock
-      - `bootstrap.memory_lock: true`
-    - line 55: set network host to pull local IP
-      - `network.host: _local:ipv4_`
-- create directories for operation
-  - `mkdir /usr/lib/systemd/system/elasticsearch.service.d`
-- change permissions on that directory
-  - `chmod 755 /usr/lib/systemd/system/elasticsearch.service.d`
-- create **override.conf** in that same directory
-  - `vim /usr/lib/sytemd/system/elasticsearch.service.d/override.conf`
-  ```sh
-  [Service]
-  LimitMEMLOCK=infinity
-  ```
-- change the permissions of that file to 644
-  - `chmod 644 /usr/lib/systemd/system/elasticsearch.service.d/override.conf`
-- edit the **jvm.options** file
-  - `vim /etc/logstash/jvm.options`
-    - line 22: edit the initial size of total heap space
-      - `-Xms4g`
-    - line 23: edit the maximum size of total heap space
-      - `-Xmx4g`
-        - Set heap limitation to half of available system ram ***up to 31GB***
-
-9200 listening port/api/  9300 internal node communications
-- add ports to firewall
-  - `firewall-cmd --add-port={9200,9300}/tcp --permanent`
-- reload the firewall
-  - `firewall-cmd --reload`
-- verify ports
-  - `firewall-cmd --list-ports`
-- start elasticsearch
-  - `systemctl start elasticsearch`
-- verify it's running
-  - `systemctl status elasticsearch`
-
-##### testing
-- test node to see if it's running
-  - `curl localhost:9200 /_cat/nodes`
-    - `?v` at the end will display headers
-- start logstash
-  - `systemctl start logstash`
-  - watch it
-    - `watch systemctl status logstash`
-- check the elasticsearch indices
-  - ` curl localhost:9200/_cat/indices`
-
-#### kibana
-
-##### install
-- install kibana
-  - `yum install -y kibana`
-
-##### config
-- config file is at **/etc/kibana**, go there
-  - `cd /etc/kibana`
-- edit the **kibana.yml** config file
-  - `vim kibana.yml`
-    - line 2: uncomment the server port field
-      - `server.port: 5601`
-    - line 7, uncomment and bind to your IP
-      - `server.host: "172.16.10.101"`
-    - line 13: set the base path, which will modify how apps are reached by URL
-      - no need to modify this now, but useful information for later
-    - line 25: change the display name of the servere
-      - `server.name: "SG-1Sensor"`
-    - line 28: list all the instances of elasiticsearch here
-      - `elasticsearch.hosts: ["http://localhost:9200"]`
-      - multiples would look like `elasticsearch.hosts: ["<IP>:<PORT>","<IP>:<PORT>",etc]`
-      - best practice is to enter all **Master** nodes here
-    - line 37: you can rename the kibana instance here
-      - `kibana.index: ".kibana"`
-
-##### start
-- start and check the service
-  - `systemctl start kibana`
-  - `watch systemctl status kibana`
-- add ports to firewall
-  - `firewall-cmd --add-port=5601/tcp --permanent`
-- reload the firewall
-  - `firewall-cmd --reload`
-- access the kibana page
-  - go to 172.16.10.101:5601 in internet browser
-
-##### UI Config
-- left side menu > Management > Stack Management will open Stack Management
-- go to Kibana > Index Patterns
-  - all indexes are named as such
-    - **ecs-service-type**
-      - for zeek, use **ecs-zeek-**
-      - select **@timestamp** from the drop down
-      - create the index pattern
-  - do the same thing for **suricata** and **fsf**
-
-##### ECS Config
-- navigate to **/home/admin**
-- download the **ecskibana.tar**
-  - `curl -L -O http://192.168.2.20/share/ecskibana.tar`
-- extract the tar file
-  - `tar -xvf ecskibana.tar`
-- go into **ecskibana**
-  - `cd ecskibana`
-- view the **import-index-templates.sh script**
-  - `vim import-index-templates.sh`
-- run the script
-  - `./import-index-templates.sh`
-    - looking for **OK: 0, Changed: 6, Failed: 0**
-
-
-##### ILM
-- here is a view of a move policy
- ```sh
- PUT /_ilm/policy/my_policy
- {
-    "policy":{
-      "phases":{
-        "hot":{
-          "actions":{
-            "rollover":{
-              "max_size":"50gb",
-              "max_age":"30d"
-            }
-          }
-        }
-      }
-    }
- }
- ```
-
- -
-
-##### security
-- First, make sure cluster is working without security
-- Set up SSL in elasticsearch
-  - edit elasticsearch.yml
-    - `vim /etc/elasticsearch/elasticsearch.yml`
-      - take note of node name
-      - at end of file:
-        - `xpack.security.enabled: true`
- - go to **/usr/share/elasticsearch**
-  - `cd /usr/share/elasticsearch`
- - run the **elasticsearch-certutil** and create a CA
-  - `/usr/share/elasticsearch/bin/elasticsearch-cerutil ca`
-  - leave the output file default, but you can name it something different
-  - enter the password, keep this part simple
-  - check to make sure the file exists in the directory now
-    - `ll`
-  - run the **elasticsearch-certutil** and create a cert, referencing the ca
-    - `/usr/share/elasticsearch/bin/elasticsearch-cerutil cert --ca elastic-stack-ca.p12 --name node-1 --ip 127.0.0.1`
-    - enter the same password used in the CA, use default output file, and enter password to be used to encrypt key file and x509 cert
-    - check to make sure the files are there
-      - `ll`
-- create a directory in **/etc/elasticsearch**, called **certs**
-  - `mkdir /etc/elasticsearch/certs`
-- change ownership of that **certs** directory
-  - `chown -R elasticsearch: /etc/elasticsearch/certs`
-- add certs directory to **elasticsearch.yml**
-  - `vim /etc/elasticsearch/elasticsearch.yml`
-    - end of file, add:
-      ```sh
-      xpack.security.transport.ssl.enabled: true
-      xpack.security.transport.ssl.verification_mode: full
-      xpack.security.transport.ssl.keystore.path: certs/node-1.p12
-      xpack.security.transport.ssl.truststore.path: certs/node-1.p12
-      ```
-
-- add keystore and password to elasticsearch
-  - `/usr/share/elasticsearch/bin/elasticsearch-keystore add xpack.security.transport.ssl.keystore.secure_password`
-    - enter the password created at cert creation
-    - add truststore and password to elasticsearch
-      - `/usr/share/elasticsearch/bin/elasticsearch-keystore add xpack.security.transport.ssl.truststore.secure_password`
-        - enter the password created at cert creation
-- copy the node-1.p12 to **/etc/elasticsearch/certs**
-  - `cp -pr node-1.p12 /etc/elasticsearch/certs`
-- change the ownership of the node-1.p12 file to elasticearch
-  - chown elasticsearch: /etc/elasticsearch/certs/node-1.p12`
-- add config to allow client connections by editin the elasticseach.yml file again
-  - `vim /etc/elasticsearch/elasticsearch.yml`
-    - end of file, add:
-      ```sh
-      xpack.security.http.ssl.enabled: true
-      xpack.security.http.ssl,keystore.path: certs/node-1.p12
-      xpack.security.http.ssl.truststore.path: certs/node-1.p12
-      ```
-- add http password to keystore
-  - `/usr/share/elasticsearch/bin/elasticsearch-keystore add xpack.security.http.ssl.keystore.secure_password`
-    - enter password
-- do the same for the truststore
-  - `/usr/share/elasticsearch/bin/elasticsearch-keystore add xpack.security.http.ssl.truststore.secure_password`
-    - enter password
-- restart cluster
-  - `systemctl restart elasticsearch`
-- create passwords
-  - `/usr/share/elasticsearch/bin/elasticsearch-setup-passwords interactive`
-    - confirm with **y**
-    - enter the passwords for elastic
-- query the API, ignoring self-signed certs, as the user **elastic**, which is the built-in admin
-  - `curl -K -u elastic https://localhost:9200`
-    - enter the password
-- query the nodes API
-  - `curl -K -u elastic https://localhost:9200/_cat/nodes`
-- enable Kibana communication over SSL
-  - `vim /etc/kibana/kibana.yml`
-    - line 46: update the username
-      - `elasticsearch.username: "kibana_system"`
-      - `elasticsearch.password: "PASSWORD_USED_ABOVE"`
-    - at bottom of file, add:
-      - `xpack.security.encryptionKey: ""arandom32characterstringgoeshere"``
-      - `xpack.security.sessionTimeout: 600000`
-- generate self-signed certs for Kibana > browser encryptino
-  - create a directory for Kibana certs
-    - `mkdir -p /etc/kibana/certs`
-  - go there
-    - `cd /etc/kibana/certs`
-  - generate an ssl cert for the browser to use
-    - `openssl req -newkey rsa:2048 -nodes -keyout kibana.key -x509 -days 365 -out kibana.cert`
-      - enter all the required information
-  - check to make sure the cert and key exist
-    - `ll`
-- make cert changes in **kibana.yml**
-  - `vim /etc/kibana/kibana.yml`
-    - line 51: uncomment and make true
-      - `server.ssl.enabled: true`
-    - line 52: uncomment and point to the cert you created
-      - `server.ssl.certificate: /etc/kibana/certs/kibana.crt`
-    - line 53: uncomment and point to the key you created
-      - `server.ssl.key: /etc/kibana/certs/kibana.key`
-    - line 28, make http https
-      - `elasticsearch.hosts: ["https://localhost:9200"]`
-- convert p12 ca to a pem file
-  - `openssl pcks12 -in /usr/share/elasticsearch/elastic-stack-ca.p12 -clcerts -nokeys -chain -out /etc/kibana/certs/elastic-stack-ca.pem`
-    - enter the password you created for the CA
-- edit kibana.yml to include the pem file
-  - line 63: uncomment and add path to your PEM file
-    - `elasticsearch.ssl.certiicateAuthorities: [ "/etc/kibana/certs/elastic-stack-ca.pem" ]`
-  - line 66: change CA verification mode.  Full for verified CA, certificate for self-signed
-    - `elasticsearch.ssl.verificationMode: certificate`
-- change ownership of **/etc/kibana/certs**
-  - `chown -R kibana: /etc/kibana/certs`
-- restart kibana
-  - `systemctl restart kibana`
-- check status of kibana
-  - `watch systemctl status kibana`
-- create service account
-  - create role in kibana UI > Stack Management > Roles
-    - Create Role
-      - name the role, ie. logstash_writer
-        - grant Cluster privileges **[ manage_index_templates, monitor ]**
-        - Run as, user that doesn't have permissions can elevate to another user that does
-        - Index privileges, grant the indexes that logstash can manage, ie. ecs-, fsf-, and the privileges [ write, delete, create_index ]
-  - assign the role to a user you create
-- create analyst account
-  - create role: logstash_reader
-  - grant privileges: none
-  - Run as privileges: none
-  - Indices: ecs-, fsf-
-  - privileges: read, view_index_metada
-  - go back to users, create user analyst01
-    - assign logstash_reader and kibana_admin role
-- edit the elasticsearch conf file for logstash
-  - `vim /etc/logstash.conf.d/logstash-9999-output-elasticsearch.conf`
-    - add `user => USERNAME` and `password => PASSWORD` below every instance of `hosts => [ 'HOST' ]`
-- create certs directory in logstash directory
-  - `mkdir /etc/logstash/certs`
-- copy certs from kibana directory to the new directory
-  - `cp -pr /etc/kibana/certs/elastic-stack-ca.pem /etc/logstash/certs/.`
-- change ownership of logstash certs directory to logstash
-  - `chown -R logstash: /etc/logstash/certs`
-- modify the elasticsearch output file again
-  - `vim /etc/logstash.conf.d/logstash-9999-output-elasticsearch.conf`
-    - under the hosts line, add a new line to show
-      - `ssl => true`
-      - `cacert => '/etc/logstash/certs/elastic-stack-ca.pem'`
-- restart logstash
-  - `systemctl restart logstash`
-- watch the status
-  - `watch systemctl status logstash`
-
-
-
-
----
-## Troubleshooting
-- start with **systemctl**/**zeekctl** (add **-l** to allow lines to fully display)
-  1. Active
-  1. Time
-  1. CGroup (subprocess)
-  1. Error output at bottom
--
-
-
-
-
----
-
-## Notes
-- start database services first, then collection, on startup
-- the size hierarchy for most of the terminology of instances is as follows:
-| LARGE TO SMALL | description |
-| :----: | :----: |
-| CLUSTER | group of nodes|
-| NODE | instance of ES, usually one per VM/server/container, use odd number |
-| INDEX | where data is actually held |
-| SHARD/REPLICA | segments of index |
-| DOCUMENT | the actual data |
-
-- **Nodes**
-  - master node delegates tasks to other nodes
-  - data nodes are the workhorses
-  - coordination nodes take zero flags, are just a part of the cluster
-    - think of this as the opposite of the master. the master delegates tasks, the coordinator knows where to pull data for Kibana searches
-
-
-- logstash doesn't hold any data.  Simply transforms is and sends it to elastic
-
----
-
-## Questions
-1. how can you tell when ES is bogged down?
-  1. how can you identify where the root problem is?
-
-
-  suricata ='s eve.json/ /etc/suricata/suricata.yaml =s config file
-
-  fsf ='s rockout.log - client and server /opt/fsf/fsf-client.conf/config.py - /data/fsf/rockout.log - yara rules used
-  beats are tools to read different things ex files or logs
-
-  Filebeat - reads file if new data available sends to designated saved location /eve.json and rockout.log are inputs / outputs are the topics we created that info sent to kafka > logstash reaches back to
-  kafka for that data>
-
-  kafka - /data/kafka - producer/consumer/broker
-
-#ORDER OF TASK
--install
--networking
--interface optimization
--test collection
--install steno(pcap)
--install suricata(alerts)
--install FSF(scans files)
--install Kafka
--install ZEEK(Connection logs)
--install kafka zookeeper must be started first
-
-
-
-//////////////////////
-
-customer network info>steno>suricata(alerts)>fsf(scans files)>eve.json info sent to kafka > logstash(monitoring and cluster) normalizes and enriches the data received from reaching back to kafka for that data>kafka passes data to elasticsearch where it will be held once indexed>kibana looks at elasticsearch for that data and presents it in agraphical interface>
-
--Index -Ex (ecs-zeek-network-date or ecs-suricata-network-date) It is how we store our data a new one is made everyday. Contain documents(logs) anything smaller than that is a replica shard.
-
--Replica shard - single worker that is a lucene query any search you make will be here and the replicas will backup that data on different boxes to create search history redundancy
-
--Cluster - Multiple nodes clustered together communicating with each other
-
--Master node- manages the cluster directs which node will index data from logstash
-
--Data nodes-Actually the nodes doing the indexing the data from logstash
-
--Ingest nodes- Work with index pipelines and alternative for logstash / we do not use
-
--Machine learning nodes-Resource intensive if youre going to use make sure you dedicate a node specifically
-
--Coordinating node-Do not give the node and attribute(type of node) this node will help speed up searches
-
--Election process for master node- whenever you spin up for the first time the election process will begin you will know which nodes is selected by * next to node in command line this is followed by a quorum being formed so all other nodes who the master is.
-
--Heap size(RAM) Multi node kits utilize JAVA that doesnt allow for anything more than 31GB's of RAM in the JVM so you dont cross the 32 bit calculation.
-
-TROUBLESHOOTING
-
-ss -lnf all listening ports
-
-firewall-cmd --list-ports
-
-/var/log gives diagnostics no entry use jornalctl -xe
-
-RESOURCE ALLOCATION
-
-Steno 2 cores 4-6 gigs of ram /
-
-
-Zeek 5 full cores 16 gigs of ram /
-
-
-Suricata 18 cores 16 gigs of ram /
-
-
-FSF 2 cores 2 gigs of ram /
-
-
-Kafka 6 cores 12 gigs of ram /
-
-
-CENTOS 1 core 1 gig ram / 2 core 4 gigs ESXI
-
-
-FILEBEAT 1 core 1 gig ram / 
-
-
-Logstash
-
-
-Elasticsearch
-
-
-Kibana
+- pull down mappings using script (./import-index-templates.sh).  This applies mappings to Elasticsearch.
+- Get rid of replicas for green health data type.
+- delete old indices -> mappings apply to all
+- create index patterns: ecs-*, ecs-zeek-*, ecs-suricata-*, fsf-*
+
+## Exercise
+### Application of resources exercise
+- Scenario is one server that requires capture 1GB/s
+- Determine resources.
+- 3 Master nodes, 1 data node, and Kibana recommended.
+- Total # CORES
+- Total # RAM
+- From there, determine how much Zeek, Steno, etc get.
+- Provide component breakdown.
+
+### What our team found
+- Steno - 1 CORE, 4g RAM
+- Zeek - 3 CORE, 128g RAM
+- Suri - 2 CORE, 8g RAM
+- FSF - 2 CORE, 8g RAM
+- Fileb - NEG, NEG 
+- Kafka - 4 CORE, 8g RAM
+- Logst - , 8g RAM
+- ES - 4 CORE (ea), 16g RAM (ea)/ so think for 3 Masters and 1 Data node (6 CORE, 64g for data). These # were edited during debrief (so adjust CORE and RAM totals).
+- Kib - 4 CORE, 8g RAM
+- Zoo - 1 CORE, 4g RAM
+- TOTAL - 19 CORE, 234g RAM (rounded up to 256g)
